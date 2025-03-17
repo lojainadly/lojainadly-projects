@@ -18,7 +18,7 @@ m_setTemp(0.0),
 m_tempOffset(0.0),
 m_start(false),
 m_heat(false),
-m_tempOn(false),
+m_tempOn(true),
 m_tempSet(false),
 read(false),
 temp(0.0)
@@ -37,9 +37,6 @@ ControlTemperature::~ControlTemperature()
  {
      if(ControlBase::StartTasks() == 0)
      {
-         if(m_start == false)
-         {
-             m_start = true;
              m_controlTempTask_attributes.name = "controlHeaterTask";
              m_controlTempTask_attributes.stack_size = 1024;
              m_controlTempTask_attributes.priority = (osPriority_t) osPriorityNormal;
@@ -55,10 +52,8 @@ ControlTemperature::~ControlTemperature()
                      return 0;
                  }
               }
-         }
-         return 2;
      }
-     return ControlBase::StartTasks();
+     return 2;
  }
 
  float ControlTemperature::GetTemp()
@@ -156,7 +151,7 @@ bool ControlTemperature::Heat(ControlCommandData& commandData)
                 HeatOn();
                 return true;
             }
-            else if(0 == strcmpi(commandData.getParam(1), MCU_CMD_HEAT_OFF))
+            if(0 == strcmpi(commandData.getParam(1), MCU_CMD_HEAT_OFF))
             {
                 HeatOff();
                 return true;
@@ -218,12 +213,14 @@ void ControlTemperature::HeatOn()
 {
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);
     m_heat = true;
+    dataSendSerial("Turned heat on\n");
 }
 
 void ControlTemperature::HeatOff()
 {
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);
     m_heat = false;
+    dataSendSerial("Turned heat off\n");
 }
 
 void ControlTemperature::TouchSensor()
@@ -274,31 +271,58 @@ void ControlTemperature::TemperatureStatus()
     float derivative;
     float pwm;
     float prev_error;
+    float buffer_on = 1.8;
+    float buffer_off = 0.5;
+
+    osDelay(2000);
+    dataSendSerial("starting PID loop\n");
 
     while(true)
     {
-        if(m_tempOn)
+        if (m_tempOn)
         {
-           GetTemp();
-           actual_temp = m_currentTemp.load();
-           error = (m_setTemp.load()) - actual_temp;
-           integral = integral + error;
-           derivative = error - prev_error;
-           pwm = (kp * error) + (ki * integral) + (kd * derivative);
+            GetTemp();
+            actual_temp = m_currentTemp.load();
+            error = (m_setTemp.load()) - actual_temp;
+            integral = integral + error;
+            derivative = error - prev_error;
+            pwm = (kp * error) + (ki * integral) + (kd * derivative);
 
-           if((pwm > 0.1) && (!m_heat))
-           {
-               HeatOn();
-           }
-           else if((pwm < 0.1) && (m_heat))
-           {
-               HeatOff();
-           }
-           else
-           {
-               osDelay(100);
-           }
-           prev_error = error;
+            dataSendSerial("Curr Temp: %.2f\n", actual_temp);
+
+            if (actual_temp >= (m_setTemp.load() - buffer_on))
+            {
+                if (m_heat)
+                {
+                    buffer_on = 1.0;
+                    HeatOff();
+                }
+            }
+
+            if (actual_temp <= (m_setTemp.load() - buffer_off))
+            {
+                if (!m_heat)
+                {
+                    HeatOn();
+                }
+            }
+            else
+            {
+                if ((pwm > 0.1) && (!m_heat))
+                {
+                    HeatOn();
+                }
+                else if ((pwm < 0.1) && (m_heat))
+                {
+                    HeatOff();
+                }
+            }
+            prev_error = error;
+            osDelay(3000);
+        }
+        else
+        {
+            osDelay(100);
         }
     }
 }
