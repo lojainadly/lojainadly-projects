@@ -2,7 +2,7 @@
  * @Author: lojainadly
  * @Date:   2025-01-20
  * @Last modified by: lojainadly
- * @Last modified time: 2025-03-17
+ * @Last modified time: 2025-04-03
  */
 
 #include "ControlTemperature.h"
@@ -260,19 +260,20 @@ void ControlTemperature::TouchSensor()
 
 void ControlTemperature::TemperatureStatus()
 {
-    // constants for flat heating pad
+      // constants for flat heating pad
     int kp = 1.2;
     int ki = 0.7;
     int kd = 2.4;
 
     float actual_temp;
+    float past_temp = 0.0;
     float error;
     float integral;
     float derivative;
     float pwm;
     float prev_error;
-    float buffer_on = 1.8;
-    float buffer_off = 0.5;
+    float buffer_on = 3.0;
+    float buffer_off = 0.2;
 
     osDelay(2000);
     dataSendSerial("starting PID loop\n");
@@ -288,37 +289,42 @@ void ControlTemperature::TemperatureStatus()
             derivative = error - prev_error;
             pwm = (kp * error) + (ki * integral) + (kd * derivative);
 
-            dataSendSerial("Curr Temp: %.2f\n", actual_temp);
+            dataSendSerial("Curr Temp: %.2f, pwm: %.2f\n", actual_temp, pwm);
 
-            if (actual_temp >= (m_setTemp.load() - buffer_on))
+            if ((actual_temp >= (m_setTemp.load() - buffer_on)) && (past_temp <= actual_temp))
             {
-                if (m_heat)
+                if (m_heat && pwm <= 3)
                 {
-                    buffer_on = 1.0;
                     HeatOff();
                 }
             }
 
-            if (actual_temp <= (m_setTemp.load() - buffer_off))
+            if ((actual_temp <= (m_setTemp.load() - buffer_off)) && (past_temp >= actual_temp))
             {
-                if (!m_heat)
+                if (!m_heat && pwm > 0.01)
                 {
                     HeatOn();
+
                 }
             }
-            else
-            {
-                if ((pwm > 0.1) && (!m_heat))
-                {
-                    HeatOn();
-                }
-                else if ((pwm < 0.1) && (m_heat))
-                {
-                    HeatOff();
-                }
-            }
+
+//            else
+//            {
+//                if ((pwm > 0.1) && (!m_heat))
+//                {
+//                    HeatOn();
+//                }
+//                else if ((pwm < 0.1) && (m_heat))
+//                {
+//                    HeatOff();
+//                }
+//            }
+
             prev_error = error;
-            osDelay(3000);
+            osDelay(500);
+
+            past_temp = actual_temp;
+
         }
         else
         {
